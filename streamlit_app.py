@@ -22,15 +22,15 @@ def parse_xml_and_find_latest(url):
         st.error(f"Kan de data niet ophalen. Statuscode: {response.status_code}")
         return None
 
-# Functie om hoofdstukken en subheaders te extraheren uit de XML
+# Functie om hoofdstukken, subheaders en artikelen te extraheren uit de XML
 def parse_xml(url):
     response = requests.get(url)
     if response.status_code == 200:
         tree = ET.ElementTree(ET.fromstring(response.content))
         root = tree.getroot()
 
-        # Extract de waarden van <label>Hoofdstuk</label> en <titel status="officieel">Algemene bepalingen</titel>
-        hoofdstukken = {}
+        # Dictionary om de structuur op te slaan
+        structuur = {}
         current_hoofdstuk = None
 
         for elem in root.iter():
@@ -39,14 +39,39 @@ def parse_xml(url):
             elif elem.tag == 'titel' and elem.attrib.get('status') == 'officieel':
                 if current_hoofdstuk is None:
                     current_hoofdstuk = elem.text
-                    hoofdstukken[current_hoofdstuk] = []
+                    structuur[current_hoofdstuk] = []
                 else:
-                    hoofdstukken[current_hoofdstuk].append(elem.text)
+                    structuur[current_hoofdstuk].append(elem.text)
 
-        return hoofdstukken
+        return structuur
     else:
         st.error(f"Kan de data niet ophalen. Statuscode: {response.status_code}")
         return {}
+
+# Dynamisch navigatiemenu genereren en pagina's aanmaken
+def generate_pages_and_sidebar_menu(hoofdstukken):
+    page_names_to_funcs = {}
+    
+    for hoofdstuk, subheaders in hoofdstukken.items():
+        # Voor elk hoofdstuk maken we een expander aan in de sidebar
+        with st.sidebar.expander(hoofdstuk):
+            for index, subheader in enumerate(subheaders):
+                # Creëer een unieke key door hoofdstuk, subheader, en index te combineren
+                key = f"{hoofdstuk}-{subheader}-{index}"
+                
+                # Dynamische functie aanmaken voor elk artikel
+                def article_page(hoofdstuk=hoofdstuk, subheader=subheader):
+                    st.header(f"{hoofdstuk} - {subheader}")
+                    st.markdown(f"Dit is de inhoud van het artikel **{subheader}** onder hoofdstuk **{hoofdstuk}**.")
+                
+                # Voeg de functie toe aan de lijst van pagina's
+                page_names_to_funcs[key] = article_page
+                
+                # Voeg een knop toe aan de sidebar om naar deze pagina te navigeren
+                if st.sidebar.button(subheader, key=key):
+                    st.session_state.selected_page = key
+
+    return page_names_to_funcs
 
 # Hoofdfunctie voor de interface
 def intro():
@@ -60,20 +85,24 @@ def intro():
 
         if latest_item_url:
             hoofdstukken = parse_xml(latest_item_url)
-
-            # Plaats de hoofdstukken en subheaders in de sidebar
             if hoofdstukken:
-                for hoofdstuk, subheaders in hoofdstukken.items():
-                    with st.sidebar.expander(hoofdstuk):
-                        for subheader in subheaders:
-                            st.write(subheader)
-
+                page_names_to_funcs = generate_pages_and_sidebar_menu(hoofdstukken)
+                st.session_state.page_names_to_funcs = page_names_to_funcs
             else:
                 st.write('Geen hoofdstukken of subheaders gevonden in het XML-bestand.')
         else:
             st.write("Geen geldige URL voor het laatste item gevonden.")
     
     st.sidebar.success("Kies een wetgeving hierboven.")
+
+# Functie om een artikelpagina weer te geven
+def show_article_page():
+    if 'selected_page' in st.session_state and 'page_names_to_funcs' in st.session_state:
+        selected_page = st.session_state.selected_page
+        page_func = st.session_state.page_names_to_funcs.get(selected_page, intro)
+        page_func()
+    else:
+        intro()
 
 # Interface opzetten
 st.title("Officiële Overheidspublicaties Viewer")
@@ -97,28 +126,5 @@ selected_item_description = st.selectbox(
 # Haal de bijbehorende ID op van het gekozen item
 item_id = item_dict[selected_item_description]
 
-st.subheader("Artikel")
-multi = '''De vergunninghouder draagt er voor zorg dat in zijn organisatie een doeltreffend integriteitsbeleid wordt ontwikkeld, toegepast en onderhouden, gericht op het onderkennen en voorkomen van.
-'''
-st.markdown(multi)
-
-st.header("Tabel")
-df = pd.DataFrame(
-   [
-       {"Topic": "Onderdeel A", "Gap": 4, "Potentiële oplossing": True, "Afhankelijkheid": "placeholder"},
-       {"Topic": "Onderdeel B", "Gap": 5, "Potentiële oplossing": False, "Afhankelijkheid": "placeholder"},
-       {"Topic": "Onderdeel C", "Gap": 3, "Potentiële oplossing": True, "Afhankelijkheid": "placeholder"},
-   ]
-)
-st.table(df)
-
-with st.expander("Zie uitleg"):
-    st.write('''
-        Placeholder for the explanation
-    ''')
-
-page_names_to_funcs = {
-    "—": intro
-}
-demo_name = st.sidebar.selectbox("Kies een wetgeving", page_names_to_funcs.keys())
-page_names_to_funcs[demo_name]()
+# Check welke pagina momenteel geselecteerd is
+show_article_page()
